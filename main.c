@@ -16,6 +16,7 @@
 #define EXIT "exit"
 #define CD "cd"
 #define STATUS "status"
+#define PID_INT_LENGTH 12
 
 
 struct command
@@ -31,17 +32,50 @@ struct command
     struct command *next;
 };
 
-void printf_custom(char *s)
+void printf_custom(char *s, int newline)
 {
-  printf("%s", s);
-  fflush(stdout);
+  if (newline == 0) {
+    printf("%s", s);
+    fflush(stdout);
+  }
+
+  else if (newline == 1) {
+    printf("%s\n", s);
+    fflush(stdout);
+  }  
 }
 
-/* Given the user input, parses it into the command struct.
+/* 
+  expands the $$ variable into this program's pid
+*/
+void variable_expansion(char *input)
+{
+  if (strstr(input, "$$") == NULL){
+    return;
+  }
+  
+  int second_half_length = strlen(strstr(input, "$$"));
+  int first_half_length = strlen(input) - second_half_length;
+  char *first_half = calloc(first_half_length+1, sizeof(char));
+  char *second_half = calloc(second_half_length+1, sizeof(char));
+  char *delim = "$$";
+
+  strncpy(first_half, input, first_half_length);
+  strncpy(second_half, &input[first_half_length+2], second_half_length+1);
+  sprintf(input, "%s%d%s", first_half, getpid(), second_half);
+  variable_expansion(input);
+}
+
+/* 
+  Given the user input, parses it into the command struct.
   returns a command struct
 */
 struct command *parse_input(char *input)
 {
+  // For use with strtok_r
+  char *saveptr;
+  char *token;
+
   // allocate memory for struct variables
   struct command *parsed_input = malloc(sizeof(struct command));
   parsed_input->full_text = calloc(strlen(input) + 1, sizeof(char));
@@ -55,46 +89,107 @@ struct command *parse_input(char *input)
 
   // move data into struct variables
   strcpy(parsed_input->full_text, input);
-  printf("parsed_input->full text: %s", parsed_input->full_text);
-  fflush(stdout);
+  //printf_custom(input);
+  //printf("parsed_input->full text: %s", parsed_input->full_text);
+  //fflush(stdout);
   
   // --TODO--
   // PARSE INPUT INTO DIFFERENT COMPONENTS.
+  // I HAVE TAKEN CARE OF 'ECHO' COMMAND, NO OTHERS
 
+  // Parse command
+  
+  // comment line
+  if (strstr(input, "#")) {
+    printf_custom("parse_input: this is a comment line, will not do anything", 1);
+  }
+
+  // empty line
+  else if (strcmp(input, "\n") == 0) {
+    printf_custom("parse_input: this is an empty line, will not do anything", 1);
+  }
+
+  // echo command
+  else if (strstr(input, "echo")) {
+    printf_custom("parse_input: echo command", 1);
+    token = strtok_r(input, " ", &saveptr);
+    printf("parse_input: pringting token: %s\n", token);
+    printf("parse_input: pringting saveptr: %s", saveptr);
+    strcpy(parsed_input->command, token);
+    strcpy(parsed_input->freetext, saveptr);
+  }
 
   return parsed_input;
 }
 
-/* This function kicks off the program.
-- Displays the shell to the user
-- Get command input
+/* 
+  execute the command
+  argument is the parsed command struct returned from parse_input()
+  returns 0 if the command is to exit the program, 1 for all other commands.
+*/
+int execute_command(struct command *parsed_input)
+{
+  /* debugging
+  printf_custom("parsed_input->full_text:");
+  printf_custom(parsed_input->full_text);
+  printf("%d", strcmp(parsed_input->full_text, ""));
+  printf_custom("\n");
+  */
+
+  // handler for blank lines and comment lines (start with #)
+  if (strcmp(parsed_input->full_text, "\n") == 0 || strstr(parsed_input->full_text, "#")) {
+    printf_custom("execute_command: comment or empty line", 1);
+  }
+
+  // hanlder for exit command
+  else if (strcmp(parsed_input->full_text, "exit\n") == 0) {
+    printf_custom("\n", 0);
+    return 0;
+  }
+
+  // handler for echo command
+  else if (strcmp(parsed_input->command, "echo") == 0) {
+    printf_custom(parsed_input->freetext, 1);
+  }
+
+  printf_custom("\n", 0);
+  return 1;
+}
+
+/* 
+  This function kicks off the program.
+  1. Displays the shell to the user
+  2. Get command input
+  3. Expand variables
+  4. Execute commands
 */
 void small_shell()
 {
-  // store user commands here
-  char *input = calloc(MAX_COMMAND_LEN+1, sizeof(char));
-  struct command *user_command;
+  int continue_ = 1; 
   
-  // get commands/input from user
-  printf_custom(": ");
-  scanf("%2048[^\n]", input);
+  do
+  { 
+    char *input = calloc(MAX_COMMAND_LEN+1, sizeof(char));
+    char *expanded_input;
+    struct command *user_command;
+    
+    printf_custom(": ", 0);
+    fgets(input, MAX_COMMAND_LEN+1, stdin);
 
-  /*
-  // NOT NEEDED FOR FINAL PROGRAM. Both of these are True if command is just 'ls'
-  if (strstr(commands, "ls")) {
-    printf("ls is found in the commands string\n");
-  }
-  if (strncmp("ls", commands, 2048) == 0) {
-    printf("ls is equal to the commands string\n");
-  }
-  printf("%s\n", commands);
-  */
+    variable_expansion(input);
+    printf("small_shell: variable expansion result: ");
+    printf_custom(input, 1);
+    printf_custom("exiting", 1);
+    return;
 
-  // parse command. returns command struct
-  user_command = parse_input(input);
+    user_command = parse_input(expanded_input);
+    continue_ = execute_command(user_command);
 
+    free(user_command);
+    free(input);
+
+  } while (continue_ == 1);
   
-  free(input);
 }
 
 /* execute the program
