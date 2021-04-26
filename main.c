@@ -146,7 +146,7 @@ struct command *parse_input(char *input)
 
   
   // populate arguments array 
-  printf("populating elements of the array now.\n");
+  //printf("populating elements of the array now.\n");
   fflush(stdout);
   fflush(stdin);
   //printf("before doing anything, token = %s", token);
@@ -170,14 +170,14 @@ struct command *parse_input(char *input)
           parsed_input->background_process = true;          
         }
       }
-      printf("exiting the array\n");
+      //printf("exiting the array\n");
       break;
     }
 
-    printf("do we continue here...?");
+    //printf("do we continue here...?");
     parsed_input->arguments[j] = calloc(strlen(token)+1, sizeof(char));
     copytoken(parsed_input->arguments[j], token);
-    printf("parsed_input->arguments[%d]: %s\n", j, parsed_input->arguments[j]);
+    //printf("parsed_input->arguments[%d]: %s\n", j, parsed_input->arguments[j]);
 
     /*
     else if (strstr(token, "\n")) {
@@ -213,19 +213,13 @@ struct command *parse_input(char *input)
 
   fflush(stdin);
   fflush(stdout);
-  printf("we got here\n");
-
-  
+  //printf("we got here\n");
   char *saveptr2;
   char *token2;
   char *temp_full_input = calloc(strlen(input)+1, sizeof(char));
 
   // handle echo command
-  strcpy(temp_full_input, parsed_input->full_text);
-  printf("%s\n", temp_full_input);
-  
-  printf("did we get here?\n");
-  
+  strcpy(temp_full_input, parsed_input->full_text);  
   char *ret;
   ret = strstr(temp_full_input, "echo ");
   //printf("%d", *ret);
@@ -239,9 +233,6 @@ struct command *parse_input(char *input)
       copytoken(parsed_input->freetext, saveptr2);
       //printf("free text is: %s", parsed_input->freetext);
     }
-  }
-  
-  else {
   }
 
   return parsed_input;
