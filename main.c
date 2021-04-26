@@ -120,7 +120,6 @@ struct command *parse_input(char *input)
   // For use with strtok_r to tokenize input
   char *saveptr;
   char *token;
-  
 
   // allocate memory / initialize
   struct command *parsed_input = malloc(sizeof(struct command));
@@ -239,6 +238,38 @@ struct command *parse_input(char *input)
 }
 
 /* 
+  Function is_comment()
+  ---------------------------------
+  description:
+    returns 1 if the input is a comment line, 0 otherwise
+  arg parsed_input: command struct, the parsed input from the user
+  returns: int
+*/
+int is_comment(struct command *parsed_input)
+{
+  char *saveptr;
+  char *token;
+  char *ret;
+  int is_comment;
+  char *temp_full_input = calloc(MAX_INPUT+1, sizeof(char));
+
+  strcpy(temp_full_input, parsed_input->full_text);  
+  ret = strstr(temp_full_input, "#");
+  
+  if (ret != NULL){
+    if (ret - temp_full_input == 0) {
+      is_comment = 1;
+    }
+    else {
+      is_comment = 0;
+    }
+  }
+
+  free(temp_full_input);
+  return is_comment;
+}
+
+/* 
   Function execute()
   ---------------------------------
   description:
@@ -255,24 +286,27 @@ int execute(struct command *parsed_input)
   printf_custom("\n");
   */
 
-  // handler for blank lines and comment lines (start with #)
-  if (strcmp(parsed_input->full_text, "\n") == 0 || strstr(parsed_input->full_text, "#")) {
-    printf_custom("execute_command: comment or empty line", 1);
+  // handler for comment lines
+  if (is_comment(parsed_input) == 1) {
+    return 1;
+  }
+
+  // handler for empty lines
+  else if (strcmp(parsed_input->full_text, "\n") == 0) {
+    return 1;
   }
 
   // hanlder for exit command
   else if (strcmp(parsed_input->full_text, "exit\n") == 0) {
-    printf_custom("\n", 0);
+    // TODO: CREATE FUNCTION TO HANDLE EXIT FUNCTIONALITY
     return 0;
   }
 
-  // handler for echo command
-  else if (strcmp(parsed_input->command, "echo") == 0) {
-    printf_custom(parsed_input->freetext, 1);
+  // handler for cd command
+  else if (strcmp(parsed_input->command, "cd") == 0){
+    //return execute_cd(parsed_input);
   }
-
-  printf_custom("\n", 0);
-  return 1;
+  
 }
 
 /* 
@@ -300,8 +334,6 @@ void small_shell()
 
     variable_expansion(input);
     user_command = parse_input(input);
-    printf("parse input successful");
-    exit(0);
     continue_ = execute(user_command);
 
     free(user_command);
