@@ -36,7 +36,7 @@ struct command
   ---------------------------------
   description:
     print a string to the console, with or without a newline.
-    immediately flushes stdin 
+    immediately flushes stdin and stdout
   arg s: char pointer, the string to output to the console
   arg newline: 1 to print a newline after the string is printed to the console, 0 if not
   returns: void
@@ -45,13 +45,15 @@ void printf_custom(char *s, int newline)
 {
   if (newline == 0) {
     printf("%s", s);
-    fflush(stdout);
   }
 
   else if (newline == 1) {
     printf("%s\n", s);
-    fflush(stdout);
-  }  
+  } 
+
+  fflush(stdin);
+  fflush(stdout);
+  return;
 }
 
 /* 
@@ -135,20 +137,11 @@ struct command *parse_input(char *input)
     return parsed_input;
   }
   
-  // initialize arguments to null
+  // place arguments in the arguments array
   int i;
   for (i=0;i<MAX_ARGUMENTS;i++){
       parsed_input->arguments[i] = NULL;
-  }
-  
-  //printf("\nparsed_input->arguments[0] = %s\n", parsed_input->arguments[0]);
-
-  
-  // populate arguments array 
-  //printf("populating elements of the array now.\n");
-  fflush(stdout);
-  fflush(stdin);
-  //printf("before doing anything, token = %s", token);
+  }  
 
   int j;
   for (j=0;j<MAX_ARGUMENTS; j++){
@@ -169,68 +162,27 @@ struct command *parse_input(char *input)
           parsed_input->background_process = true;          
         }
       }
-      //printf("exiting the array\n");
+
       break;
     }
 
-    //printf("do we continue here...?");
     parsed_input->arguments[j] = calloc(strlen(token)+1, sizeof(char));
     copytoken(parsed_input->arguments[j], token);
-    //printf("parsed_input->arguments[%d]: %s\n", j, parsed_input->arguments[j]);
-
-    /*
-    else if (strstr(token, "\n")) {
-
-      if(strcmp(token, "&\n") == 0) {
-        parsed_input->background_process = true;
-        // PUT A BREAK; STATEMENT HERE IF WE SHOULD NOT INCLUDE THE & CHARACTER IN THE ARGUMENT ARRAY
-      }
-      parsed_input->arguments[j] = calloc(strlen(token)+1, sizeof(char));
-      strncpy(parsed_input->arguments[j], token, strlen(token)-1);
-      break;
-    }
-
-    // otherwise continue processing user input strings per normal
-    parsed_input->arguments[j] = calloc(strlen(token)+1, sizeof(char));
-    strcpy(parsed_input->arguments[j], token);
-    */
-
   }
-
-  /* error checking. This is all good.
-  However, if I try to access an array item thinking it's a string, but it's null, it will throw a seg fault on me.
-  printf("User input array items: \n");
-  j = 0;
-  for (j=0;j<10; j++) {
-    if (parsed_input->arguments[j] == NULL){
-      break;
-    }
-    printf("%s\n", parsed_input->arguments[j]);
-  }
-  printf("did the newline character make it into the last array item?\n");
-  */
-
-  fflush(stdin);
-  fflush(stdout);
-  //printf("we got here\n");
-  char *saveptr2;
-  char *token2;
-  char *temp_full_input = calloc(strlen(input)+1, sizeof(char));
 
   // handle echo command
-  strcpy(temp_full_input, parsed_input->full_text);  
+  char *saveptr2;
+  char *token2;
   char *ret;
+  char *temp_full_input = calloc(strlen(input)+1, sizeof(char));
+  
+  strcpy(temp_full_input, parsed_input->full_text);
   ret = strstr(temp_full_input, "echo ");
-  //printf("%d", *ret);
-  //printf("%d", *temp_full_input);
   
   if (ret != NULL){
       if (ret - temp_full_input == 0) {
-      //printf("echo command found with space at beginning\n");
       token2 = strtok_r(temp_full_input, " ", &saveptr2);
-      //strcpy(parsed_input->freetext, saveptr2);
       copytoken(parsed_input->freetext, saveptr2);
-      //printf("free text is: %s", parsed_input->freetext);
     }
   }
 
@@ -270,6 +222,38 @@ int is_comment(struct command *parsed_input)
 }
 
 /* 
+  Function execute_cd()
+  ---------------------------------
+  description:
+    executes the cd command with up to one argument
+    cd -> changes current working directory to the HOME directory
+    cd [arg1] -> changes current working directory specified in [arg1]
+      if [arg1] is not a valid directory, error message is printed.
+  arg parsed_input: command struct, the parsed input from the user
+  returns: void
+*/
+void execute_cd(struct command *parsed_input)
+{
+  char *dir;
+  char *currdir = calloc(500, sizeof(char));
+ 
+  // get directory to change to
+  if (strcmp(parsed_input->full_text, "cd\n") == 0) {
+    dir = getenv("HOME");
+  }
+  else if (parsed_input->arguments[1] != NULL) {
+    strcpy(dir, parsed_input->arguments[1]);
+  }
+  else{
+    printf("invalid directory\n");
+  }
+ 
+  // change directory
+  chdir(dir);
+  return;
+}
+
+/* 
   Function execute()
   ---------------------------------
   description:
@@ -304,7 +288,7 @@ int execute(struct command *parsed_input)
 
   // handler for cd command
   else if (strcmp(parsed_input->command, "cd") == 0){
-    //return execute_cd(parsed_input);
+    execute_cd(parsed_input);
   }
   
 }
