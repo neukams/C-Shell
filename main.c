@@ -69,20 +69,6 @@ struct command
 };
 
 /* 
-  Function arraylen()
-  ---------------------------------
-  description:
-    returns the length of an array
-  arg arr: pointer to an array
-  returns: int
-*/
-/*
-int arraylen(char *arr) {
-  int i = 0;
-  while (true)
-}*/
-
-/* 
   Function printf_custom()
   ---------------------------------
   description:
@@ -160,6 +146,120 @@ void copytoken(char *place_here, char *token)
 }
 
 /* 
+  Function get_command_struct()
+  ---------------------------------
+  description:
+    returns a command struct
+    - memory allocated for char pointers
+    - arguments char array values initialized to null
+  returns: struct command
+*/
+struct command *get_command_struct()
+{
+  // allocate memory
+  struct command *input_struct = malloc(sizeof(struct command));
+  input_struct->full_text = calloc(MAX_INPUT + 1, sizeof(char));
+  input_struct->command = calloc(MAX_INPUT + 1, sizeof(char));
+  input_struct->freetext = calloc(MAX_INPUT + 1, sizeof(char));
+
+  // initialize array arguments to null
+  int i;
+  for (i=0;i<MAX_ARGUMENTS;i++){
+      input_struct->arguments[i] = NULL;
+  }
+  
+  return input_struct;
+}
+
+/* 
+  Function get_command_struct()
+  ---------------------------------
+  description:
+    copies the raw user input into the ->full_text struct variable, by reference
+  returns: void
+*/
+void set_full_text(struct command *parsed_input, char *input)
+{
+  strcpy(parsed_input->full_text, input);
+  return;
+}
+
+/* 
+  Function set_command_arguments()
+  ---------------------------------
+  description:
+    process user arguments into the arguments array in the command struct
+      user enters: ls /folder1/folder2
+      arguments array: {"/bin/ls", "/folder1/folder2", NULL, NULL, ...}
+    note: the arguments array is initialized with MAX_ARGUMENTS # of values. This is OK to pass into the exec family of functions, because they stop at the first NULL value. This can be modified later if need be.
+    all processing is done by reference
+  arg: parsed_input: command struct with user input to process
+  arg: user_input: char pointer to user's command line input
+  returns: void
+*/
+void set_command_arguments(struct command *parsed_input, char *user_input)
+{
+  // TODO: PRETTY SURE I'M NOT SUPPOSED TO INCLUDE I/O REDIRECTION OR BACKGROUND PROCESSING (&) IN THE ARGUMENTS.
+
+  char *token;
+  char *saveptr;
+  char *input;
+  int j;
+
+  input = calloc(MAX_INPUT+1, sizeof(char));
+  strcpy(input, user_input);
+
+  // process user arguments into the arguments array
+  for (j=0;j<MAX_ARGUMENTS; j++){
+    
+    // get token
+    if(j < 1){
+      token = strtok_r(input, " ", &saveptr);
+      copytoken(parsed_input->command, token);      
+    }
+    else if (j > 0) {
+      token = strtok_r(NULL, " ", &saveptr);
+    }
+
+    // exit loop if token empty
+    if (token == NULL) {
+      break;
+    }
+    else if (strcmp(token, "\n") == 0) {
+      break;
+    }
+
+    // place into arguments array
+    parsed_input->arguments[j] = calloc(strlen(token)+1, sizeof(char));
+    copytoken(parsed_input->arguments[j], token);
+  }
+
+  free(input);
+  return;
+}
+
+/* 
+  Function set_background_process()
+  ---------------------------------
+  description:
+    given a command struct with parsed input for the ->full_text and ->arguments variables, update the ->background_process boolean
+  arg: parsed_input: command struct with user input to process
+  returns: void
+*/
+void set_background_process(struct command *parsed_input)
+{
+
+  if (strstr(parsed_input->full_text, "&\n") || strstr(parsed_input->full_text, "& \n")) {
+    parsed_input->background_process = true;
+  }
+  else {
+    parsed_input->background_process = false;
+  }
+
+  return;
+}
+
+/* 
   Function parse_input()
   ---------------------------------
   description:
@@ -169,80 +269,13 @@ void copytoken(char *place_here, char *token)
 */
 struct command *parse_input(char *input)
 {
+  struct command *parsed_input;
 
-  // TODO: CLEAN UP THIS CODE AND MAYBE SPLIT UP INTO SUPPORTING FUNCTIONS.
-
-  // For use with strtok_r to tokenize input
-  char *saveptr;
-  char *token;
-
-  // allocate memory / initialize
-  struct command *parsed_input = malloc(sizeof(struct command));
-  parsed_input->full_text = calloc(strlen(input) + 1, sizeof(char));
-  parsed_input->command = calloc(strlen(input) + 1, sizeof(char));
-  parsed_input->freetext = calloc(strlen(input) + 1, sizeof(char));
-  parsed_input->background_process = false;
-
-  strcpy(parsed_input->full_text, input);
-
-  // return if input is simply the newline character
-  if (strcmp(input, "\n") == 0) {
-    return parsed_input;
-  }
-  
-  // place arguments in the arguments array
-  int i;
-  for (i=0;i<MAX_ARGUMENTS;i++){
-      parsed_input->arguments[i] = NULL;
-  }
-
-  int j;
-  for (j=0;j<MAX_ARGUMENTS; j++){
-    
-    // get the correct token
-    if(j < 1){
-      token = strtok_r(input, " ", &saveptr);
-      copytoken(parsed_input->command, token);
-
-      parsed_input->arguments[0] = calloc(strlen(token)+6, sizeof(char));
-      sprintf(parsed_input->arguments[0], "/bin/%s", parsed_input->command);
-    }
-    else {
-      token = strtok_r(NULL, " ", &saveptr);
-    }
-
-    // if we have reached the final user input string
-    if(token == NULL){
-      if (j > 0) {
-        if (strcmp(parsed_input->arguments[j-1], "&") == 0) {
-          parsed_input->background_process = true;          
-        }
-      }
-
-      break;
-    }
-
-    if (j > 0){
-      parsed_input->arguments[j] = calloc(strlen(token)+1, sizeof(char));
-      copytoken(parsed_input->arguments[j], token);
-    }
-  }
-
-  // handle echo command
-  char *saveptr2;
-  char *token2;
-  char *ret;
-  char *temp_full_input = calloc(strlen(input)+1, sizeof(char));
-  
-  strcpy(temp_full_input, parsed_input->full_text);
-  ret = strstr(temp_full_input, "echo ");
-  
-  if (ret != NULL){
-      if (ret - temp_full_input == 0) {
-      token2 = strtok_r(temp_full_input, " ", &saveptr2);
-      copytoken(parsed_input->freetext, saveptr2);
-    }
-  }
+  parsed_input = get_command_struct();
+  set_full_text(parsed_input, input);
+  set_command_arguments(parsed_input, input);
+  //TODO: SET I/O REDIRECTION ?
+  set_background_process(parsed_input);
 
   return parsed_input;
 }
@@ -330,6 +363,20 @@ void execute_status() {
 }
 
 /* 
+  Function execute_exit()
+  ---------------------------------
+  description:
+    exits this shell program
+    kills all child processes or jobs before exiting.
+  returns: void
+*/
+void execute_exit() {
+  //TODO: IMPLEMENTE EXECUTE_EXIT() FUNCTION
+  printf("execute_exit() called. This function is not yet implemented.");
+
+}
+
+/* 
   Function exec_foreground()
   ---------------------------------
   description:
@@ -341,6 +388,9 @@ void exec_foreground(struct command *parsed_input) {
   
 	int childStatus;
 	pid_t spawnPid = fork(); // fork new process
+  //printf("%s\n", parsed_input->arguments[0]);
+  //printf("%s\n", parsed_input->arguments[1]);
+  //printf("%s\n", parsed_input->arguments[2]);
 
 	switch(spawnPid){
 	case -1:
@@ -350,14 +400,14 @@ void exec_foreground(struct command *parsed_input) {
 	case 0:
 		// In the child process
 		// Replace the current program
-    execv(parsed_input->arguments[0], parsed_input->arguments);
-		// exec only returns if there is an error
+    execvp(parsed_input->arguments[0], parsed_input->arguments);
 		perror("execve");
 		exit(2);
 		break;
 	default:
 		// In the parent process
 		// Wait for child's termination
+    printf("Parent process completed");
 		spawnPid = waitpid(spawnPid, &childStatus, 0);
 		break;
 	}
@@ -373,20 +423,6 @@ void exec_foreground(struct command *parsed_input) {
 */
 void exec_background(struct command *parsed_input) {
   //TODO: IMPLEMENT
-}
-
-/* 
-  Function execute_exit()
-  ---------------------------------
-  description:
-    exits this shell program
-    kills all child processes or jobs before exiting.
-  returns: void
-*/
-void execute_exit() {
-  //TODO: IMPLEMENTE EXECUTE_EXIT() FUNCTION
-  printf("execute_exit() called. This function is not yet implemented.");
-
 }
 
 /* 
