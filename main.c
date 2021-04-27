@@ -235,7 +235,6 @@ int is_comment(struct command *parsed_input)
 void execute_cd(struct command *parsed_input)
 {
   char *dir;
-  char *currdir = calloc(500, sizeof(char));
  
   // get directory to change to
   if (strcmp(parsed_input->full_text, "cd\n") == 0) {
