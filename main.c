@@ -247,8 +247,6 @@ void set_command_arguments(struct command *parsed_input, char *user_input)
 */
 void set_io_redirection(struct command *parsed_input)
 {
-  printf("setting i/o redirection\n");
-
   char *token;
   char *saveptr;
   char *prevtoken = calloc(MAX_INPUT+1, sizeof(char));
@@ -265,12 +263,12 @@ void set_io_redirection(struct command *parsed_input)
 
     // input redirection filename
     if (strcmp(prevtoken, "<") == 0) {
-      strcpy(parsed_input->redirect_in, token);
+      copytoken(parsed_input->redirect_in, token);
       printf("redirect in: %s", parsed_input->redirect_in);
     }
     // output redirection filename
     else if (strcmp(prevtoken, ">") == 0) {
-      strcpy(parsed_input->redirect_out, token);
+      copytoken(parsed_input->redirect_out, token);
       printf("redirect out: %s", parsed_input->redirect_out);
     }
 
@@ -280,6 +278,7 @@ void set_io_redirection(struct command *parsed_input)
   }
 
   free(input);
+  free(prevtoken);
   return;
 }
 
@@ -444,17 +443,21 @@ void exec_foreground(struct command *parsed_input) {
 		break;
 	case 0:
 		// In the child process
-    // Open file descriptors for i/o redirection, if applicable
+    // If applicable, handle I/O redirection
     if (parsed_input->redirect_in != NULL) {
-      in_fd = open(parsed_input->redirect_in, );
+      in_fd = open(parsed_input->redirect_in, O_RDONLY);
+      dup2(in_fd, 0);
     }
-    else if (parsed_input->redirect_out != NULL) {
-      out_fd = open(parsed_input->redirect_out, );
+    if (parsed_input->redirect_out != NULL) {
+      out_fd = open(parsed_input->redirect_out, O_RDWR | O_CREAT | O_TRUNC, 0640);
+      dup2(out_fd, 1);
     }
+    //close(in_fd);
+    //close(out_fd);
 		// Replace the current program
     execvp(parsed_input->arguments[0], parsed_input->arguments);
 		perror("execvp");
-		exit(2);
+		//exit(2);
 		break;
 	default:
 		// In the parent process
@@ -487,13 +490,6 @@ void exec_background(struct command *parsed_input) {
 */
 int execute(struct command *parsed_input)
 {
-  /* debugging
-  printf_custom("parsed_input->full_text:");
-  printf_custom(parsed_input->full_text);
-  printf("%d", strcmp(parsed_input->full_text, ""));
-  printf_custom("\n");
-  */
-
   // handler for comment lines
   if (is_comment(parsed_input) == 1) {
     return 1;
@@ -505,8 +501,8 @@ int execute(struct command *parsed_input)
   }
 
   // hanlder for exit command
-  else if (strcmp(parsed_input->full_text, "exit\n") == 0) {
-    exit(0);
+  else if (strcmp(parsed_input->arguments[0], "exit") == 0 && parsed_input->arguments[1] == NULL) {
+    execute_exit();
   }
 
   // handler for cd command
@@ -533,6 +529,8 @@ int execute(struct command *parsed_input)
     return 1;
   }
   
+  printf("error, unhandled input\n");
+  return 0;
 }
 
 /* 
