@@ -7,9 +7,12 @@
   This program mimicks a shell. The commands cd, exit, and status are built in.
   All other commands are passed to the exec family of functions.
 
+  Supported input format:
+  command [arg1 arg2 ...] [< input_file] [> output_file] [&]
+
   Supported Features
   - blank lines
-  - comment lines (#example comment)
+  - comment lines (#this is an example comment line, it must start with #)
   - exit
   - cd
   - status (returns the... )
@@ -42,20 +45,6 @@
 #define PID_INT_LENGTH 12
 #define MAX_BACKGROUND_PIDS 50
 
-// Global struct to track process ids of children (background processes)
-/*
-struct pids
-{
-  int length;
-  char *pids[MAX_BACKGROUND_PIDS];
-};
-char *background_pids[];
-int l;
-
-for (l=0; l<MAX_BACKGROUND_PIDS; l++){
-
-}*/
-
 
 struct command
 {
@@ -65,7 +54,6 @@ struct command
     char *redirect_in;
     char *redirect_out;
     bool background_process;
-    char *freetext;
 };
 
 /* 
@@ -160,7 +148,8 @@ struct command *get_command_struct()
   struct command *input_struct = malloc(sizeof(struct command));
   input_struct->full_text = calloc(MAX_INPUT + 1, sizeof(char));
   input_struct->command = calloc(MAX_INPUT + 1, sizeof(char));
-  input_struct->freetext = calloc(MAX_INPUT + 1, sizeof(char));
+  input_struct->redirect_in = calloc(MAX_INPUT + 1, sizeof(char));
+  input_struct->redirect_out = calloc(MAX_INPUT + 1, sizeof(char));
 
   // initialize array arguments to null
   int i;
@@ -190,17 +179,18 @@ void set_full_text(struct command *parsed_input, char *input)
   description:
     process user arguments into the arguments array in the command struct
       user enters: ls /folder1/folder2
-      arguments array: {"/bin/ls", "/folder1/folder2", NULL, NULL, ...}
-    note: the arguments array is initialized with MAX_ARGUMENTS # of values. This is OK to pass into the exec family of functions, because they stop at the first NULL value. This can be modified later if need be.
-    all processing is done by reference
+      arguments array: {"ls", "/folder1/folder2", NULL, NULL, ...}
+      user enters: ls > cat &
+      arguments array: {"ls", NULL, NULL, ...}
+    Note: the arguments array is initialized with MAX_ARGUMENTS # of values. This is OK to pass into the exec family of functions, because they stop at the first NULL value. This can be modified later if need be.
+    All processing is done by reference
+    Does NOT process I/O redirection, or background processing into the arguments array.
   arg: parsed_input: command struct with user input to process
   arg: user_input: char pointer to user's command line input
   returns: void
 */
 void set_command_arguments(struct command *parsed_input, char *user_input)
 {
-  // TODO: PRETTY SURE I'M NOT SUPPOSED TO INCLUDE I/O REDIRECTION OR BACKGROUND PROCESSING (&) IN THE ARGUMENTS.
-
   char *token;
   char *saveptr;
   char *input;
@@ -221,17 +211,72 @@ void set_command_arguments(struct command *parsed_input, char *user_input)
       token = strtok_r(NULL, " ", &saveptr);
     }
 
-    // exit loop if token empty
+    // exit loop scenarios
+    // - end of input (by null or by newline)
+    // - we have reached file redirection statements
+    // - we have reached background processing statements
     if (token == NULL) {
       break;
     }
     else if (strcmp(token, "\n") == 0) {
       break;
     }
+    else if (strcmp(token, ">") == 0 || strcmp(token, "<") == 0) {
+      break;
+    }
+    else if (strcmp(token, "&") == 0) {
+      break;
+    }
 
     // place into arguments array
     parsed_input->arguments[j] = calloc(strlen(token)+1, sizeof(char));
     copytoken(parsed_input->arguments[j], token);
+  }
+
+  free(input);
+  return;
+}
+
+/* 
+  Function set_io_redirection()
+  ---------------------------------
+  description:
+    given a command struct with the user's full command line input in the ->full_text variable, processes any i/o redirection into the argument's appropriate struct fields
+  arg: parsed_input: command struct with user input (->full_text) to process
+  returns: void
+*/
+void set_io_redirection(struct command *parsed_input)
+{
+  printf("setting i/o redirection\n");
+
+  char *token;
+  char *saveptr;
+  char *prevtoken = calloc(MAX_INPUT+1, sizeof(char));
+  char *input = calloc(strlen(parsed_input->full_text)+1, sizeof(char));
+  strcpy(input, parsed_input->full_text);
+
+  // get second token from input string (assuming first token is the command)
+  token = strtok_r(input, " ", &saveptr);
+  copytoken(prevtoken, token);
+  token = strtok_r(NULL, " ", &saveptr);
+
+  // get and test tokens for i/o redirection statements
+  while (token) {
+
+    // input redirection filename
+    if (strcmp(prevtoken, "<") == 0) {
+      strcpy(parsed_input->redirect_in, token);
+      printf("redirect in: %s", parsed_input->redirect_in);
+    }
+    // output redirection filename
+    else if (strcmp(prevtoken, ">") == 0) {
+      strcpy(parsed_input->redirect_out, token);
+      printf("redirect out: %s", parsed_input->redirect_out);
+    }
+
+    // iterate to next token
+    copytoken(prevtoken, token);
+    token = strtok_r(NULL, " ", &saveptr);
   }
 
   free(input);
@@ -274,7 +319,7 @@ struct command *parse_input(char *input)
   parsed_input = get_command_struct();
   set_full_text(parsed_input, input);
   set_command_arguments(parsed_input, input);
-  //TODO: SET I/O REDIRECTION ?
+  set_io_redirection(parsed_input);
   set_background_process(parsed_input);
 
   return parsed_input;
@@ -324,14 +369,14 @@ int is_comment(struct command *parsed_input)
 */
 void execute_cd(struct command *parsed_input)
 {
-  char *dir;
+  char *dir = calloc(strlen(parsed_input->arguments[1])+1, sizeof(char));
  
   // get directory to change to
-  if (strcmp(parsed_input->full_text, "cd\n") == 0) {
+  if (strstr(parsed_input->arguments[0], "cd") != NULL && parsed_input->arguments[1] ==  NULL) {
     dir = getenv("HOME");
   }
   else if (parsed_input->arguments[1] != NULL) {
-    strcpy(dir, parsed_input->arguments[1]);
+    copytoken(dir, parsed_input->arguments[1]);
   }
   else{
     printf("invalid directory\n");
@@ -339,6 +384,7 @@ void execute_cd(struct command *parsed_input)
  
   // change directory
   chdir(dir);
+  free(dir);
   return;
 }
 
@@ -376,7 +422,7 @@ void execute_exit() {
 
 }
 
-/* 
+/*
   Function exec_foreground()
   ---------------------------------
   description:
@@ -387,10 +433,9 @@ void execute_exit() {
 void exec_foreground(struct command *parsed_input) {
   
 	int childStatus;
+  int in_fd;
+  int out_fd;
 	pid_t spawnPid = fork(); // fork new process
-  //printf("%s\n", parsed_input->arguments[0]);
-  //printf("%s\n", parsed_input->arguments[1]);
-  //printf("%s\n", parsed_input->arguments[2]);
 
 	switch(spawnPid){
 	case -1:
@@ -399,15 +444,22 @@ void exec_foreground(struct command *parsed_input) {
 		break;
 	case 0:
 		// In the child process
+    // Open file descriptors for i/o redirection, if applicable
+    if (parsed_input->redirect_in != NULL) {
+      in_fd = open(parsed_input->redirect_in, );
+    }
+    else if (parsed_input->redirect_out != NULL) {
+      out_fd = open(parsed_input->redirect_out, );
+    }
 		// Replace the current program
     execvp(parsed_input->arguments[0], parsed_input->arguments);
-		perror("execve");
+		perror("execvp");
 		exit(2);
 		break;
 	default:
 		// In the parent process
 		// Wait for child's termination
-    printf("Parent process completed");
+    //printf("Parent process completed");
 		spawnPid = waitpid(spawnPid, &childStatus, 0);
 		break;
 	}
