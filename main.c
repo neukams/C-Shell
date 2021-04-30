@@ -39,11 +39,14 @@
 #include <stdbool.h>
 #include <sys/wait.h>
 #include <stdio.h>
+#include <signal.h>
 
 #define MAX_COMMAND_LEN 2048
 #define MAX_ARGUMENTS 512
 #define PID_INT_LENGTH 12
 #define MAX_BACKGROUND_PIDS 50
+
+int GLOBAL_FOREGROUND_CHILD_EXIT_STATUS = 0;
 
 
 struct command
@@ -55,6 +58,31 @@ struct command
     char *redirect_out;
     bool background_process;
 };
+
+/*
+  Function set_shell_sigint_handler()
+  ---------------------------------
+  description:
+    sets the SIG_IGN (Ignore) flag for SIGINT in the calling process
+  return: void
+*/
+void set_sigint_handler(void (*sa_handler_func)())
+{
+  // allocate struct memory
+  struct sigaction *SIGINT_parent_action = malloc(sizeof(struct sigaction));
+  memset(SIGINT_parent_action, 0, sizeof(struct sigaction));
+
+  // setup sigaction struct
+  // TODO: CLEAR THIS COMMENT LINE IF NOT USED.
+  //SIGINT_parent_action->sa_handler = shell_sigint_handler; // this does not require the user to click 'enter' after clicking Ctrl+C
+  SIGINT_parent_action->sa_handler = sa_handler_func;
+  sigfillset(&SIGINT_parent_action->sa_mask);
+  SIGINT_parent_action->sa_flags = 0;
+
+  // set SIGINT to reference custom sigaction struct
+  sigaction(SIGINT, SIGINT_parent_action, NULL);
+  return;
+}
 
 /* 
   Function printf_custom()
@@ -105,6 +133,8 @@ void variable_expansion(char *input)
   strncpy(second_half, &input[first_half_length+2], second_half_length+1);
   sprintf(input, "%s%d%s", first_half, getpid(), second_half);
   variable_expansion(input);
+  free(first_half);
+  free(second_half);
 }
 
 /* 
@@ -368,13 +398,16 @@ int is_comment(struct command *parsed_input)
 */
 void execute_cd(struct command *parsed_input)
 {
-  char *dir = calloc(strlen(parsed_input->arguments[1])+1, sizeof(char));
+  char *dir = malloc(sizeof(char)*200);
+  memset(dir, 0, sizeof(char)*200);
  
   // get directory to change to
-  if (strstr(parsed_input->arguments[0], "cd") != NULL && parsed_input->arguments[1] ==  NULL) {
-    dir = getenv("HOME");
+  if (strstr(parsed_input->arguments[0], "cd") && parsed_input->arguments[1] ==  NULL) {
+    printf("HOME directory chosen\n");
+    strcpy(dir, getenv("HOME"));
   }
   else if (parsed_input->arguments[1] != NULL) {
+    printf("directory chosen: %s", parsed_input->arguments[1]);
     copytoken(dir, parsed_input->arguments[1]);
   }
   else{
@@ -404,7 +437,8 @@ void execute_status() {
 
   The three built-in shell commands do not count as foreground processes for the purposes of this built-in command - i.e., status should ignore built-in commands.
   */
-  printf("execute_status() called. This function is not yet implemented.");
+  printf("execute_status() called. This function is not fully implemented.\n");
+  printf("%d\n", GLOBAL_FOREGROUND_CHILD_EXIT_STATUS);
 }
 
 /* 
@@ -431,7 +465,7 @@ void execute_exit() {
 */
 void exec_foreground(struct command *parsed_input) {
   
-	int childStatus;
+	int childexitStatus;
   int in_fd;
   int out_fd;
 	pid_t spawnPid = fork(); // fork new process
@@ -443,7 +477,10 @@ void exec_foreground(struct command *parsed_input) {
 		break;
 	case 0:
 		// In the child process
-    // If applicable, handle I/O redirection
+    // Child processes will not ignore SIGINT signals
+    set_sigint_handler(SIG_DFL);
+
+    // If applicable, I/O redirection
     if (parsed_input->redirect_in != NULL) {
       in_fd = open(parsed_input->redirect_in, O_RDONLY);
       dup2(in_fd, 0);
@@ -452,8 +489,10 @@ void exec_foreground(struct command *parsed_input) {
       out_fd = open(parsed_input->redirect_out, O_RDWR | O_CREAT | O_TRUNC, 0640);
       dup2(out_fd, 1);
     }
-    //close(in_fd);
-    //close(out_fd);
+
+    close(in_fd); // saw this on an example page, closed before calling exec.
+    close(out_fd);
+
 		// Replace the current program
     execvp(parsed_input->arguments[0], parsed_input->arguments);
 		perror("execvp");
@@ -463,7 +502,15 @@ void exec_foreground(struct command *parsed_input) {
 		// In the parent process
 		// Wait for child's termination
     //printf("Parent process completed");
-		spawnPid = waitpid(spawnPid, &childStatus, 0);
+		spawnPid = waitpid(spawnPid, &childexitStatus, 0);
+    GLOBAL_FOREGROUND_CHILD_EXIT_STATUS = childexitStatus;
+    if (childexitStatus != 0) {
+      fflush(stdout);
+      fflush(stdin);
+      printf("\nchild exit signal: %d\n", GLOBAL_FOREGROUND_CHILD_EXIT_STATUS);
+      fflush(stdout);
+      fflush(stdin);
+    }    
 		break;
 	}
 }
@@ -549,7 +596,9 @@ void small_shell()
   
   do
   { 
-    char *input = calloc(MAX_COMMAND_LEN+1, sizeof(char));
+    //char *input = calloc(MAX_COMMAND_LEN+1, sizeof(char));
+    char *input = malloc(sizeof(char)); // SAME RESULT AS CALLOC
+    memset(input, 0, sizeof(char));
     char *expanded_input;
     struct command *user_command;
 
@@ -558,6 +607,11 @@ void small_shell()
     
     printf_custom(": ", 0);
     fgets(input, MAX_COMMAND_LEN+1, stdin);
+
+    // if the user enters Ctrl+C to initiate a SIGINT signal, this handles the edge case that input is "", which segfaults
+    if (strlen(input) == 0) {
+      strcpy(input, "\n");
+    }
 
     variable_expansion(input);
     user_command = parse_input(input);
@@ -580,14 +634,54 @@ void small_shell()
 void killchildprocesses()
 {
   //TODO: IMPLEMENT
+  printf("kill child processes");
   return;
 }
 
-/* 
+/*
+  Function shell_children_sigint_handler()
+  ---------------------------------
+  description:
+    handler for SIGINT signal in the shell's child processes
+    child process terminates upon receiving SIGINT signal
+  return: void
+*/
+void shell_children_sigint_handler()
+{
+  exit(0);
+  return;
+}
+
+/*
+  Function set_shell_child_sigint_handler()
+  ---------------------------------
+  description:
+    sets the SIGINT signal handler for the shell's child processes
+    this should not be used for the shell process
+  return: void
+*/
+void set_shell_child_sigint_handler()
+{
+  // allocate struct memory
+  struct sigaction *SIGINT_child_action = malloc(sizeof(struct sigaction));
+  memset(SIGINT_child_action, 0, sizeof(struct sigaction));
+
+  // setup sigaction struct
+  SIGINT_child_action->sa_handler = shell_children_sigint_handler;
+  sigfillset(&SIGINT_child_action->sa_mask);
+  SIGINT_child_action->sa_flags = 0;
+
+  // set SIGINT to reference custom sigaction struct
+  sigaction(SIGINT, SIGINT_child_action, NULL);
+  return;
+}
+
+/*
   execute the program
 */
 int main(void) {
-  //atexit(killchildprocesses);
+  // killchildprocesses();
+  set_sigint_handler(SIG_IGN);
   small_shell();
   return EXIT_SUCCESS;
 }
